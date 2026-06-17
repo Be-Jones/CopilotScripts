@@ -5,8 +5,8 @@
 .DESCRIPTION
     Uses the Microsoft Graph Package Management API (beta) to enumerate every agent
     registered in the Microsoft 365 Copilot Agent Registry and block any that are
-    not already blocked. Agents that should be excluded from blocking are listed 
-    starting in line 59. Requires Powershell 7.
+    not already blocked. Agents that should be protected from blocking must be
+    listed in a JSON reference file. Requires Powershell 7.
 
     API base  : https://graph.microsoft.com/beta/copilot/admin/catalog/packages
     Scope     : CopilotPackages.ReadWrite.All  (Delegated — work/school account)
@@ -19,19 +19,19 @@
     Optional. The Entra tenant ID or verified domain to authenticate against.
     If omitted, the home tenant of the signed-in account is used.
 
-.PARAMETER AgentTypes
-    One or more element type strings to filter by.
-    Defaults to @('DeclarativeAgent','CustomEngineAgent') which targets agents only.
-    Pass @('*') to include every package type (bots, add-ins, etc.) that supports Copilot.
+.PARAMETER AllowList
+    Required. Path to a JSON file containing agents that must not be blocked.
+    The script matches allowed agents by package id. Display names are informational.
 
-.PARAMETER WhatIf
-    Dry-run mode — lists the agents that would be blocked without actually blocking them.
-
-.EXAMPLE
-    .\Block-AllCopilotAgents.ps1
+.PARAMETER Interactive
+    Optional. Writes human-readable progress and table output for manual runs.
+    Automated runs emit a structured summary object and warnings/errors only.
 
 .EXAMPLE
-    .\Block-AllCopilotAgents.ps1 -TenantId contoso.onmicrosoft.com -WhatIf
+    .\Block-AllCopilotAgents.ps1 -AllowList .\allowedAgents.json
+
+.EXAMPLE
+    .\Block-AllCopilotAgents.ps1 -TenantId contoso.onmicrosoft.com -AllowList .\allowedAgents.json -Interactive
 
 .NOTES
     API reference:
@@ -41,54 +41,113 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter()]
     [string] $TenantId,
 
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string] $AllowList,
+
     [Parameter()]
+    [switch] $Interactive,
+
+    [Parameter()]
+    [ValidateRange(0, 86400)]
     [int] $RetryAfterSeconds = 30,
 
     [Parameter()]
+    [ValidateRange(0, 20)]
     [int] $MaxRetries = 3
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Agents that must never be blocked ────────────────────────────────────────
-$EXCLUDED_AGENTS = @(
-    'Excel (Agent)',
-    'PowerPoint (Agent)',
-    'Word (Agent)',
-    'Cowork (Frontier)',
-    'Researcher',
-    'Analyst'
-)
-
 # ── Constants ──────────────────────────────────────────────────────────────────
 $GRAPH_BETA       = 'https://graph.microsoft.com/beta'
 $PACKAGES_URL     = "$GRAPH_BETA/copilot/admin/catalog/packages"
 $REQUIRED_SCOPE   = 'CopilotPackages.ReadWrite.All'
 
+# ── Helper: interactive progress output ───────────────────────────────────────
+function Write-InteractiveMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $Message,
+
+        [Parameter()]
+        [System.ConsoleColor] $ForegroundColor = [System.ConsoleColor]::White
+    )
+
+    if ($Interactive) {
+        Write-Host $Message -ForegroundColor $ForegroundColor
+    }
+}
+
+# ── Helper: allowed agents reference file ─────────────────────────────────────
+function Get-AllowedAgentIds {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    if (-not (Test-Path -Path $Path -PathType Leaf)) {
+        Write-Error -Category ObjectNotFound -ErrorAction Stop -Message "Allowed agents file not found: $Path"
+    }
+
+    try {
+        $allowedAgentsDocument = Get-Content -Path $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        Write-Error -Category ParserError -ErrorAction Stop -Message "Allowed agents file is not valid JSON: $Path. $($_.Exception.Message)"
+    }
+
+    $allowedAgentsProperty = $allowedAgentsDocument.PSObject.Properties['allowedAgents']
+    if ($null -eq $allowedAgentsProperty) {
+        Write-Error -Category InvalidData -ErrorAction Stop -Message "Allowed agents file must contain an 'allowedAgents' array. See allowedAgents.json for the expected format."
+    }
+
+    if ($null -ne $allowedAgentsProperty.Value -and $allowedAgentsProperty.Value -isnot [array]) {
+        Write-Error -Category InvalidData -ErrorAction Stop -Message "Allowed agents file property 'allowedAgents' must be an array."
+    }
+
+    $allowedAgentIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $seenDisplayNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($allowedAgent in @($allowedAgentsProperty.Value)) {
+        if ($null -eq $allowedAgent) { continue }
+
+        $idProperty = $allowedAgent.PSObject.Properties['id']
+        if ($null -eq $idProperty -or [string]::IsNullOrWhiteSpace([string]$idProperty.Value)) {
+            Write-Error -Category InvalidData -ErrorAction Stop -Message "Each allowedAgents entry must include a non-empty 'id'."
+        }
+
+        $allowedAgentId = [string]$idProperty.Value
+        if (-not $allowedAgentIds.Add($allowedAgentId)) {
+            Write-Error -Category InvalidData -ErrorAction Stop -Message "Allowed agents file contains a duplicate id: $allowedAgentId"
+        }
+
+        $displayNameProperty = $allowedAgent.PSObject.Properties['displayName']
+        if ($null -ne $displayNameProperty -and -not [string]::IsNullOrWhiteSpace([string]$displayNameProperty.Value)) {
+            [void]$seenDisplayNames.Add([string]$displayNameProperty.Value)
+        }
+    }
+
+    return [pscustomobject]@{
+        Ids          = $allowedAgentIds
+        DisplayNames = @($seenDisplayNames)
+        Count        = $allowedAgentIds.Count
+    }
+}
+
 # ── Module check ───────────────────────────────────────────────────────────────
 if (-not (Get-Module -ListAvailable -Name 'Microsoft.Graph.Authentication')) {
-    Write-Host "[setup] Installing Microsoft.Graph.Authentication ..." -ForegroundColor Cyan
-    Install-Module -Name 'Microsoft.Graph.Authentication' `
-                   -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+    Write-Error -Category ResourceUnavailable -ErrorAction Stop -Message "Required PowerShell module 'Microsoft.Graph.Authentication' is not installed. Install it before running this script: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser. Installation help: https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication"
 }
 Import-Module -Name 'Microsoft.Graph.Authentication' -ErrorAction Stop
-
-# ── Connect ────────────────────────────────────────────────────────────────────
-$connectParams = @{
-    Scopes    = @($REQUIRED_SCOPE)
-    NoWelcome = $true
-}
-if ($TenantId) { $connectParams['TenantId'] = $TenantId }
-
-Write-Host "[auth] Connecting to Microsoft Graph (scope: $REQUIRED_SCOPE) ..." -ForegroundColor Cyan
-Connect-MgGraph @connectParams
-Write-Host "[auth] Connected as: $((Get-MgContext).Account)" -ForegroundColor Green
 
 # ── Helper: invoke with retry on 429 / 503 ────────────────────────────────────
 function Invoke-GraphWithRetry {
@@ -107,10 +166,7 @@ function Invoke-GraphWithRetry {
         catch {
             $status = $_.Exception.Response?.StatusCode?.value__ ?? 0
             if (($status -in 429, 503) -and $attempt -lt $Retries) {
-                $wait = $RetryAfterSeconds
-                # honour Retry-After header when present
-                $retryHeader = $_.Exception.Response?.Headers?['Retry-After']
-                if ($retryHeader) { $wait = [int]$retryHeader }
+                $wait = Get-RetryDelaySeconds -Response $_.Exception.Response
                 Write-Warning "[retry] HTTP $status — waiting ${wait}s before retry $($attempt + 1)/$Retries ..."
                 Start-Sleep -Seconds $wait
                 $attempt++
@@ -122,69 +178,106 @@ function Invoke-GraphWithRetry {
     } while ($attempt -le $Retries)
 }
 
-# ── Build list URL ─────────────────────────────────────────────────────────────
-# Filter to packages that surface in Copilot — this is what the API docs define
-# as "all agents". The elementTypes field is often unpopulated so we do not
-# filter on it; instead we post-filter in PowerShell using -AgentTypes if needed.
-$listUrl = "${PACKAGES_URL}?`$filter=supportedHosts/any(h:h eq 'Copilot')"
+function Get-RetryDelaySeconds {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        $Response
+    )
 
-# ── Enumerate all agents (page through results) ────────────────────────────────
-Write-Host "[fetch] Enumerating agents from the Agent Registry ..." -ForegroundColor Cyan
-
-$agents  = [System.Collections.Generic.List[pscustomobject]]::new()
-$pageUrl = $listUrl
-
-do {
-    $page = Invoke-GraphWithRetry -Method GET -Uri $pageUrl
-    foreach ($item in $page.value) {
-        $agents.Add([pscustomobject]@{
-            Id          = $item.id
-            DisplayName = $item.displayName ?? '(no name)'
-            Type        = $item.type
-            IsBlocked   = [bool]($item.isBlocked)
-            Publisher   = $item.publisher ?? ''
-            ElementTypes = ($item.elementTypes -join ', ')
-        })
+    $wait = $RetryAfterSeconds
+    $retryHeader = $null
+    if ($null -ne $Response -and $null -ne $Response.Headers) {
+        $retryHeader = $Response.Headers['Retry-After']
     }
-    $pageUrl = $page.PSObject.Properties['@odata.nextLink']?.Value
-    Write-Verbose "[fetch] Page complete — $($agents.Count) agents so far ..."
-} while ($pageUrl)
 
-Write-Host "[fetch] Found $($agents.Count) agent(s) total." -ForegroundColor Cyan
+    if ($retryHeader) {
+        $retryHeaderValue = @($retryHeader)[0]
+        $retryAfterSecondsValue = 0
 
-if ($agents.Count -eq 0) {
-    Write-Host "[done] No agents found. Nothing to do." -ForegroundColor Yellow
-    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-    exit 0
+        if ([int]::TryParse([string]$retryHeaderValue, [ref]$retryAfterSecondsValue)) {
+            $wait = $retryAfterSecondsValue
+        }
+        else {
+            $retryAfterDate = [datetimeoffset]::MinValue
+            if ([datetimeoffset]::TryParse([string]$retryHeaderValue, [ref]$retryAfterDate)) {
+                $wait = [int][math]::Ceiling(($retryAfterDate - [datetimeoffset]::UtcNow).TotalSeconds)
+            }
+        }
+    }
+
+    return [math]::Max(0, [math]::Min($wait, 86400))
 }
 
-# ── Display what was found ─────────────────────────────────────────────────────
-$agents | Format-Table -AutoSize -Property Id,DisplayName, Type, Publisher, ElementTypes, IsBlocked
+# ── Build list URL ─────────────────────────────────────────────────────────────
+# Filter to packages that surface in Copilot. The elementTypes field is often
+# unpopulated, so the script does not rely on it for the default target set.
+$listUrl = "${PACKAGES_URL}?`$filter=supportedHosts/any(h:h eq 'Copilot')"
 
-# ── Block each unblocked agent ─────────────────────────────────────────────────
-$stats = @{ AlreadyBlocked = 0; Excluded = 0; Blocked = 0; WouldBlock = 0; Failed = 0 }
-$failures = [System.Collections.Generic.List[pscustomobject]]::new()
+try {
+    $allowedAgents = Get-AllowedAgentIds -Path $AllowList
+    Write-InteractiveMessage -Message "[allow] Loaded $($allowedAgents.Count) protected agent id(s) from $AllowList" -ForegroundColor Cyan
 
-foreach ($agent in $agents) {
-    if ($agent.IsBlocked) {
-        Write-Verbose "[skip] Already blocked: $($agent.DisplayName)"
-        $stats.AlreadyBlocked++
-        continue
+    # ── Connect ────────────────────────────────────────────────────────────────
+    $connectParams = @{
+        Scopes    = @($REQUIRED_SCOPE)
+        NoWelcome = $true
+    }
+    if ($TenantId) { $connectParams['TenantId'] = $TenantId }
+
+    Write-InteractiveMessage -Message "[auth] Connecting to Microsoft Graph (scope: $REQUIRED_SCOPE) ..." -ForegroundColor Cyan
+    Connect-MgGraph @connectParams | Out-Null
+    Write-InteractiveMessage -Message "[auth] Connected as: $((Get-MgContext).Account)" -ForegroundColor Green
+
+    # ── Enumerate all agents (page through results) ────────────────────────────
+    Write-InteractiveMessage -Message '[fetch] Enumerating agents from the Agent Registry ...' -ForegroundColor Cyan
+
+    $agents  = [System.Collections.Generic.List[pscustomobject]]::new()
+    $pageUrl = $listUrl
+
+    do {
+        $page = Invoke-GraphWithRetry -Method GET -Uri $pageUrl
+        foreach ($item in $page.value) {
+            $agents.Add([pscustomobject]@{
+                Id          = $item.id
+                DisplayName = $item.displayName ?? '(no name)'
+                Type        = $item.type
+                IsBlocked   = [bool]($item.isBlocked)
+                Publisher   = $item.publisher ?? ''
+                ElementTypes = ($item.elementTypes -join ', ')
+            })
+        }
+        $pageUrl = $page.PSObject.Properties['@odata.nextLink']?.Value
+        Write-Verbose "[fetch] Page complete — $($agents.Count) agents so far ..."
+    } while ($pageUrl)
+
+    Write-InteractiveMessage -Message "[fetch] Found $($agents.Count) agent(s) total." -ForegroundColor Cyan
+
+    if ($Interactive -and $agents.Count -gt 0) {
+        $agents | Format-Table -AutoSize -Property Id, DisplayName, Type, Publisher, ElementTypes, IsBlocked
     }
 
-    if ($EXCLUDED_AGENTS -contains $agent.DisplayName) {
-        Write-Host "[exempt]  $($agent.DisplayName)" -ForegroundColor DarkYellow
-        $stats.Excluded++
-        continue
-    }
+    # ── Block each unblocked agent ─────────────────────────────────────────────
+    $stats = @{ AlreadyBlocked = 0; Excluded = 0; Blocked = 0; Failed = 0 }
+    $failures = [System.Collections.Generic.List[pscustomobject]]::new()
 
-    $blockUrl = "$PACKAGES_URL/$($agent.Id)/block"
-    $label    = "$($agent.DisplayName) [$($agent.Id)]"
+    foreach ($agent in $agents) {
+        if ($agent.IsBlocked) {
+            Write-Verbose "[skip] Already blocked: $($agent.DisplayName)"
+            $stats.AlreadyBlocked++
+            continue
+        }
 
-    if ($PSCmdlet.ShouldProcess($label, 'Block Copilot agent')) {
+        if ($allowedAgents.Ids.Contains($agent.Id)) {
+            Write-InteractiveMessage -Message "[exempt]  $($agent.DisplayName)" -ForegroundColor DarkYellow
+            $stats.Excluded++
+            continue
+        }
+
+        $blockUrl = "$PACKAGES_URL/$($agent.Id)/block"
         try {
             Invoke-GraphWithRetry -Method POST -Uri $blockUrl | Out-Null
-            Write-Host "[blocked] $($agent.DisplayName)" -ForegroundColor Green
+            Write-InteractiveMessage -Message "[blocked] $($agent.DisplayName)" -ForegroundColor Green
             $stats.Blocked++
         }
         catch {
@@ -198,35 +291,41 @@ foreach ($agent in $agents) {
             $stats.Failed++
         }
     }
-    else {
-        # -WhatIf path
-        Write-Host "[whatif]  Would block: $($agent.DisplayName)" -ForegroundColor Yellow
-        $stats.WouldBlock++
+
+    $summary = [pscustomobject]@{
+        TotalAgentsFound    = $agents.Count
+        AllowedAgentsFile   = $AllowList
+        AllowedAgentsLoaded = $allowedAgents.Count
+        AlreadyBlocked      = $stats.AlreadyBlocked
+        ExemptProtected     = $stats.Excluded
+        SuccessfullyBlocked = $stats.Blocked
+        Failed              = $stats.Failed
+        Failures            = @($failures)
     }
-}
 
-# ── Summary ────────────────────────────────────────────────────────────────────
-$divider = '─' * 52
-Write-Host ''
-Write-Host $divider -ForegroundColor Cyan
-Write-Host ' Block-AllCopilotAgents — Summary' -ForegroundColor Cyan
-Write-Host $divider -ForegroundColor Cyan
-Write-Host "  Total agents found   : $($agents.Count)"
-Write-Host "  Already blocked      : $($stats.AlreadyBlocked)" -ForegroundColor DarkGray
-Write-Host "  Exempt (protected)   : $($stats.Excluded)" -ForegroundColor DarkYellow
-
-if ($WhatIfPreference) {
-    Write-Host "  Would be blocked     : $($stats.WouldBlock)" -ForegroundColor Yellow
-}
-else {
-    Write-Host "  Successfully blocked : $($stats.Blocked)" -ForegroundColor Green
-    if ($stats.Failed -gt 0) {
-        Write-Host "  Failed               : $($stats.Failed)" -ForegroundColor Red
+    if ($Interactive) {
+        $divider = '─' * 52
         Write-Host ''
-        Write-Host '  Failed agents:' -ForegroundColor Red
-        $failures | Format-Table -AutoSize -Property Name, Id, Error
-    }
-}
-Write-Host $divider -ForegroundColor Cyan
+        Write-Host $divider -ForegroundColor Cyan
+        Write-Host ' Block-AllCopilotAgents — Summary' -ForegroundColor Cyan
+        Write-Host $divider -ForegroundColor Cyan
+        Write-Host "  Total agents found   : $($summary.TotalAgentsFound)"
+        Write-Host "  Allowed agents loaded: $($summary.AllowedAgentsLoaded)"
+        Write-Host "  Already blocked      : $($summary.AlreadyBlocked)" -ForegroundColor DarkGray
+        Write-Host "  Exempt (protected)   : $($summary.ExemptProtected)" -ForegroundColor DarkYellow
 
-Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+        Write-Host "  Successfully blocked : $($summary.SuccessfullyBlocked)" -ForegroundColor Green
+        if ($summary.Failed -gt 0) {
+            Write-Host "  Failed               : $($summary.Failed)" -ForegroundColor Red
+            Write-Host ''
+            Write-Host '  Failed agents:' -ForegroundColor Red
+            $failures | Format-Table -AutoSize -Property Name, Id, Error
+        }
+        Write-Host $divider -ForegroundColor Cyan
+    }
+
+    $summary
+}
+finally {
+    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+}

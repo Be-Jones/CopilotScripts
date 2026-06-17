@@ -1,0 +1,14 @@
+{
+  "allowedAgents": [
+    {
+      "id": "replace-with-graph-package-id",
+      "displayName": "Excel (Agent)",
+      "notes": "Display name is informational. The script matches this entry by id."
+    },
+    {
+      "id": "replace-with-another-graph-package-id",
+      "displayName": "PowerPoint (Agent)",
+      "notes": "Add one object for each agent that must never be blocked."
+    }
+  ]
+}
