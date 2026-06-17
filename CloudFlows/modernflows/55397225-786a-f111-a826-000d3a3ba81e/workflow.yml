@@ -1,0 +1,28 @@
+Workflow:
+  '@WorkflowId': '{55397225-786a-f111-a826-000d3a3ba81e}'
+  '@Name': Block Agents not in Allowlist
+  JsonFileName: /modernflows/55397225-786a-f111-a826-000d3a3ba81e/BlockAgentsnotinAllowlist-55397225-786A-F111-A826-000D3A3BA81E.json
+  Type: 1
+  Subprocess: 0
+  Category: 5
+  Mode: 0
+  Scope: 4
+  OnDemand: 0
+  TriggerOnCreate: 0
+  TriggerOnDelete: 0
+  AsyncAutodelete: 0
+  SyncWorkflowLogOnFailure: 0
+  StateCode: 1
+  StatusCode: 2
+  RunAs: 1
+  IsTransacted: 1
+  IntroducedVersion: 1.0.0.0
+  IsCustomizable: 1
+  BusinessProcessType: 0
+  IsCustomProcessingStepAllowedForOtherPublishers: 1
+  ModernFlowType: 0
+  PrimaryEntity: none
+  LocalizedNames:
+    LocalizedName:
+      '@languagecode': 1033
+      '@description': Block Agents not in Allowlist
