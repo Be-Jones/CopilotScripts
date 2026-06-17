@@ -1,14 +1,39 @@
 {
   "allowedAgents": [
     {
-      "id": "replace-with-graph-package-id",
-      "displayName": "Excel (Agent)",
-      "notes": "Display name is informational. The script matches this entry by id."
+      "id": "P_04bd11c3-6ac7-7b55-6c0a-4a99918be9f1",
+      "displayName": "Cowork (Frontier)",
+      "notes": "Allowed by default policy"
     },
     {
-      "id": "replace-with-another-graph-package-id",
+      "id": "P_8d830dc1-9a14-1528-1182-c8e3be94cf5a",
+      "displayName": "Excel (Agent)",
+      "notes":"Allowed by default policy"
+    },
+    {
+      "id": "P_15f67c5b-bfb1-fbd9-043a-cbb047bb7bd0",
+      "displayName": "Word (Agent)",
+      "notes": "Allowed by default policy"
+    },
+    {
+      "id": "P_54c3f25e-3850-e1e6-231a-aa85fbe9447b",
       "displayName": "PowerPoint (Agent)",
-      "notes": "Add one object for each agent that must never be blocked."
+      "notes":"Allowed by default policy"
+    },
+    {
+      "id": "P_5b99927c-dcd2-3654-aacb-f8d82a980c83",
+      "displayName": "Finance (Frontier)",
+      "notes": "Allowed by default policy"
+    },
+    {
+      "id": "P_552e6eda-fc18-7fb9-0ef6-1bf2de3393e4",
+      "displayName": "Researcher",
+      "notes":"Allowed by default policy"
+    },
+    {
+      "id":"P_8cfc4e6f-267e-db15-c6e7-3fc47a54f61e",
+      "displayName":"Analyst",
+      "notes":"Allowed by default policy"
     }
   ]
 }

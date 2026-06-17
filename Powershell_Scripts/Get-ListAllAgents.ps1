@@ -46,7 +46,7 @@
     .\Get-ListAllAgents.ps1
 
 .EXAMPLE
-    .\Get-ListAllAgents.ps1 -OutputPath .\allowedAgents.generated.json
+    .\Get-ListAllAgents.ps1 -OutputPath .\agentsList.json
 
 .EXAMPLE
     .\Get-ListAllAgents.ps1 -ElementType DeclarativeAgent -Interactive
@@ -296,11 +296,11 @@ try {
 
     Write-InteractiveMessage -Message "[fetch] Found $($packages.Count) package(s)." -ForegroundColor Cyan
 
-    $allowListDocument = [pscustomobject]@{
-        allowedAgents = @($packages | Sort-Object -Property displayName, id)
+    $agentListDocument = [pscustomobject]@{
+        agentsList = @($packages | Sort-Object -Property displayName, id)
     }
 
-    $json = $allowListDocument | ConvertTo-Json -Depth 8
+    $json = $agentListDocument | ConvertTo-Json -Depth 8
 
     if ($OutputPath) {
         $outputDirectory = Split-Path -Path $OutputPath -Parent
