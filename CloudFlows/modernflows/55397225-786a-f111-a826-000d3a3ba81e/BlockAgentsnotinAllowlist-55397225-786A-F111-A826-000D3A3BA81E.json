@@ -27,7 +27,7 @@
         }
       },
       "actions": {
-        "Initialize_allowed_agent_ids": {
+        "Initialize_allowlist_agent_ids": {
           "runAfter": {},
           "metadata": {
             "operationMetadataId": "680c48d2-ea14-4a7d-8042-ccd9b9eca70c"
@@ -36,7 +36,7 @@
           "inputs": {
             "variables": [
               {
-                "name": "AllowedAgentIds",
+                "name": "AllowlistAgentIds",
                 "type": "array",
                 "value": [
                   "P_04bd11c3-6ac7-7b55-6c0a-4a99918be9f1",
@@ -53,7 +53,7 @@
         },
         "Initialize_page_url": {
           "runAfter": {
-            "Initialize_allowed_agent_ids": [
+            "Initialize_allowlist_agent_ids": [
               "Succeeded"
             ]
           },
@@ -68,7 +68,7 @@
             ]
           }
         },
-        "Initialize_total_agents_found": {
+        "Initialize_blocked_agents": {
           "runAfter": {
             "Initialize_page_url": [
               "Succeeded"
@@ -78,16 +78,16 @@
           "inputs": {
             "variables": [
               {
-                "name": "TotalAgentsFound",
-                "type": "integer",
-                "value": 0
+                "name": "BlockedAgents",
+                "type": "array",
+                "value": []
               }
             ]
           }
         },
-        "Initialize_already_blocked": {
+        "Initialize_allowed_agents": {
           "runAfter": {
-            "Initialize_total_agents_found": [
+            "Initialize_blocked_agents": [
               "Succeeded"
             ]
           },
@@ -95,16 +95,16 @@
           "inputs": {
             "variables": [
               {
-                "name": "AlreadyBlocked",
-                "type": "integer",
-                "value": 0
+                "name": "AllowedAgents",
+                "type": "array",
+                "value": []
               }
             ]
           }
         },
-        "Initialize_exempt_protected": {
+        "Initialize_draft_agents": {
           "runAfter": {
-            "Initialize_already_blocked": [
+            "Initialize_allowed_agents": [
               "Succeeded"
             ]
           },
@@ -112,75 +112,7 @@
           "inputs": {
             "variables": [
               {
-                "name": "ExemptProtected",
-                "type": "integer",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "Initialize_successfully_blocked": {
-          "runAfter": {
-            "Initialize_exempt_protected": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "SuccessfullyBlocked",
-                "type": "integer",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "Initialize_draft_unpublished": {
-          "runAfter": {
-            "Initialize_successfully_blocked": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "DraftUnpublished",
-                "type": "integer",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "Initialize_failed": {
-          "runAfter": {
-            "Initialize_draft_unpublished": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "Failed",
-                "type": "integer",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "Initialize_failures": {
-          "runAfter": {
-            "Initialize_failed": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "Failures",
+                "name": "DraftAgents",
                 "type": "array",
                 "value": []
               }
@@ -189,7 +121,7 @@
         },
         "Until_all_pages_processed": {
           "runAfter": {
-            "Initialize_failures": [
+            "Initialize_draft_agents": [
               "Succeeded"
             ]
           },
@@ -200,7 +132,7 @@
             "timeout": "PT1H"
           },
           "actions": {
-            "List_current_agent_page": {
+            "Get_agents_page": {
               "runAfter": {},
               "type": "Http",
               "inputs": {
@@ -214,129 +146,104 @@
                 }
               }
             },
-            "Apply_to_each_agent": {
+            "For_each_agent": {
               "runAfter": {
-                "List_current_agent_page": [
+                "Get_agents_page": [
                   "Succeeded"
                 ]
               },
               "type": "Foreach",
-              "foreach": "@coalesce(body('List_current_agent_page')?['value'], createArray())",
+              "foreach": "@coalesce(body('Get_agents_page')?['value'], createArray())",
               "operationOptions": "Sequential",
               "actions": {
-                "Increment_total_agents_found": {
+                "If_agent_is_in_allowlist": {
                   "runAfter": {},
-                  "type": "IncrementVariable",
-                  "inputs": {
-                    "name": "TotalAgentsFound",
-                    "value": 1
-                  }
-                },
-                "If_agent_already_blocked": {
-                  "runAfter": {
-                    "Increment_total_agents_found": [
-                      "Succeeded"
-                    ]
-                  },
                   "type": "If",
-                  "expression": "@equals(items('Apply_to_each_agent')?['isBlocked'], true)",
+                  "expression": "@contains(variables('AllowlistAgentIds'), items('For_each_agent')?['id'])",
                   "actions": {
-                    "Increment_already_blocked": {
+                    "Append_to_allowed_agents": {
                       "runAfter": {},
-                      "type": "IncrementVariable",
+                      "type": "AppendToArrayVariable",
                       "inputs": {
-                        "name": "AlreadyBlocked",
-                        "value": 1
+                        "name": "AllowedAgents",
+                        "value": {
+                          "id": "@{items('For_each_agent')?['id']}",
+                          "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
+                          "status": "allowed"
+                        }
                       }
                     }
                   },
                   "else": {
                     "actions": {
-                      "If_agent_is_protected": {
+                      "If_agent_is_draft": {
                         "runAfter": {},
                         "type": "If",
-                        "expression": "@contains(variables('AllowedAgentIds'), items('Apply_to_each_agent')?['id'])",
+                        "expression": "@contains(toLower(string(coalesce(items('For_each_agent')?['publishingStatus'], items('For_each_agent')?['publicationStatus'], items('For_each_agent')?['publishingState'], items('For_each_agent')?['state'], items('For_each_agent')?['status'], items('For_each_agent')?['packageStatus'], items('For_each_agent')?['deploymentStatus'], ''))), 'draft')",
                         "actions": {
-                          "Increment_exempt_protected": {
+                          "Append_to_draft_agents": {
                             "runAfter": {},
-                            "type": "IncrementVariable",
+                            "type": "AppendToArrayVariable",
                             "inputs": {
-                              "name": "ExemptProtected",
-                              "value": 1
+                              "name": "DraftAgents",
+                              "value": {
+                                "id": "@{items('For_each_agent')?['id']}",
+                                "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
+                                "status": "draft"
+                              }
                             }
                           }
                         },
                         "else": {
                           "actions": {
-                            "Block_agent": {
+                            "If_agent_is_already_blocked": {
                               "runAfter": {},
-                              "type": "Http",
-                              "inputs": {
-                                "method": "POST",
-                                "uri": "@{concat('https://graph.microsoft.com/beta/copilot/admin/catalog/packages/', items('Apply_to_each_agent')?['id'], '/block')}",
-                                "authentication": "@parameters('$authentication')",
-                                "retryPolicy": {
-                                  "type": "exponential",
-                                  "count": 3,
-                                  "interval": "PT30S"
-                                }
-                              }
-                            },
-                            "Increment_successfully_blocked": {
-                              "runAfter": {
-                                "Block_agent": [
-                                  "Succeeded"
-                                ]
-                              },
-                              "type": "IncrementVariable",
-                              "inputs": {
-                                "name": "SuccessfullyBlocked",
-                                "value": 1
-                              }
-                            },
-                            "Classify_block_failure": {
-                              "runAfter": {
-                                "Block_agent": [
-                                  "Failed",
-                                  "TimedOut"
-                                ]
-                              },
                               "type": "If",
-                              "expression": "@or(equals(outputs('Block_agent')?['statusCode'], 424), contains(toLower(string(outputs('Block_agent'))), 'faileddependency'), contains(toLower(string(outputs('Block_agent'))), 'failed dependency'), contains(toLower(string(outputs('Block_agent'))), 'draft'), contains(toLower(string(outputs('Block_agent'))), 'not published'), contains(toLower(string(outputs('Block_agent'))), 'unpublished'))",
+                              "expression": "@equals(items('For_each_agent')?['isBlocked'], true)",
                               "actions": {
-                                "Increment_draft_unpublished": {
+                                "Append_already_blocked_agent_to_blocked_agents": {
                                   "runAfter": {},
-                                  "type": "IncrementVariable",
+                                  "type": "AppendToArrayVariable",
                                   "inputs": {
-                                    "name": "DraftUnpublished",
-                                    "value": 1
+                                    "name": "BlockedAgents",
+                                    "value": {
+                                      "id": "@{items('For_each_agent')?['id']}",
+                                      "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
+                                      "status": "alreadyBlocked"
+                                    }
                                   }
                                 }
                               },
                               "else": {
                                 "actions": {
-                                  "Append_block_failure": {
+                                  "Block_agent": {
                                     "runAfter": {},
-                                    "type": "AppendToArrayVariable",
+                                    "type": "Http",
                                     "inputs": {
-                                      "name": "Failures",
-                                      "value": {
-                                        "id": "@{items('Apply_to_each_agent')?['id']}",
-                                        "name": "@{coalesce(items('Apply_to_each_agent')?['displayName'], '(no name)')}",
-                                        "error": "@{string(outputs('Block_agent'))}"
+                                      "method": "POST",
+                                      "uri": "@{concat('https://graph.microsoft.com/beta/copilot/admin/catalog/packages/', items('For_each_agent')?['id'], '/block')}",
+                                      "authentication": "@parameters('$authentication')",
+                                      "retryPolicy": {
+                                        "type": "exponential",
+                                        "count": 3,
+                                        "interval": "PT30S"
                                       }
                                     }
                                   },
-                                  "Increment_failed": {
+                                  "Append_to_blocked_agents": {
                                     "runAfter": {
-                                      "Append_block_failure": [
+                                      "Block_agent": [
                                         "Succeeded"
                                       ]
                                     },
-                                    "type": "IncrementVariable",
+                                    "type": "AppendToArrayVariable",
                                     "inputs": {
-                                      "name": "Failed",
-                                      "value": 1
+                                      "name": "BlockedAgents",
+                                      "value": {
+                                        "id": "@{items('For_each_agent')?['id']}",
+                                        "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
+                                        "status": "blocked"
+                                      }
                                     }
                                   }
                                 }
@@ -352,19 +259,19 @@
             },
             "Set_next_page_url": {
               "runAfter": {
-                "Apply_to_each_agent": [
+                "For_each_agent": [
                   "Succeeded"
                 ]
               },
               "type": "SetVariable",
               "inputs": {
                 "name": "PageUrl",
-                "value": "@{coalesce(body('List_current_agent_page')?['@odata.nextLink'], '')}"
+                "value": "@{coalesce(body('Get_agents_page')?['@odata.nextLink'], '')}"
               }
             }
           }
         },
-        "Compose_summary": {
+        "Compose_results": {
           "runAfter": {
             "Until_all_pages_processed": [
               "Succeeded"
@@ -372,14 +279,9 @@
           },
           "type": "Compose",
           "inputs": {
-            "totalAgentsFound": "@{variables('TotalAgentsFound')}",
-            "allowedAgentsLoaded": "@{length(variables('AllowedAgentIds'))}",
-            "alreadyBlocked": "@{variables('AlreadyBlocked')}",
-            "exemptProtected": "@{variables('ExemptProtected')}",
-            "successfullyBlocked": "@{variables('SuccessfullyBlocked')}",
-            "draftUnpublished": "@{variables('DraftUnpublished')}",
-            "failed": "@{variables('Failed')}",
-            "failures": "@{variables('Failures')}"
+            "blocked": "@{variables('BlockedAgents')}",
+            "allowed": "@{variables('AllowedAgents')}",
+            "draft": "@{variables('DraftAgents')}"
           }
         }
       }
