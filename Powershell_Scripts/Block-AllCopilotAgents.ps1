@@ -20,8 +20,10 @@
     If omitted, the home tenant of the signed-in account is used.
 
 .PARAMETER AllowList
-    Required. Path to a JSON file containing agents that must not be blocked.
+    Required. Path to a JSON file containing agents that must NOT be blocked.
     The script matches allowed agents by package id. Display names are informational.
+    A list of agents can be exported directly from https://admin.microsoft365.com/#/agents/all.
+    From the .csv export, use the Displayname and Title ID columns in the allowedAgents.json file.
 
 .PARAMETER Interactive
     Optional. Writes human-readable progress and table output for manual runs.
@@ -164,7 +166,7 @@ function Invoke-GraphWithRetry {
             return Invoke-MgGraphRequest -Method $Method -Uri $Uri
         }
         catch {
-            $status = $_.Exception.Response?.StatusCode?.value__ ?? 0
+            $status = Get-GraphErrorStatusCode -ErrorRecord $_
             if (($status -in 429, 503) -and $attempt -lt $Retries) {
                 $wait = Get-RetryDelaySeconds -Response $_.Exception.Response
                 Write-Warning "[retry] HTTP $status — waiting ${wait}s before retry $($attempt + 1)/$Retries ..."
@@ -207,6 +209,54 @@ function Get-RetryDelaySeconds {
     }
 
     return [math]::Max(0, [math]::Min($wait, 86400))
+}
+
+function Get-GraphErrorStatusCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord] $ErrorRecord
+    )
+
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ($null -eq $responseProperty) {
+        return 0
+    }
+
+    $response = $responseProperty.Value
+    if ($null -eq $response) {
+        return 0
+    }
+
+    $statusCodeProperty = $response.PSObject.Properties['StatusCode']
+    if ($null -eq $statusCodeProperty -or $null -eq $statusCodeProperty.Value) {
+        return 0
+    }
+
+    $statusCode = $statusCodeProperty.Value
+    $statusCodeValueProperty = $statusCode.PSObject.Properties['value__']
+    if ($null -ne $statusCodeValueProperty) {
+        return [int]$statusCodeValueProperty.Value
+    }
+
+    return [int]$statusCode
+}
+
+function Test-UnpublishedAgentBlockError {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord] $ErrorRecord
+    )
+
+    $status = Get-GraphErrorStatusCode -ErrorRecord $ErrorRecord
+    $message = @(
+        $ErrorRecord.Exception.Message
+        $ErrorRecord.ToString()
+        ($ErrorRecord | Out-String)
+    ) -join "`n"
+
+    return ($status -eq 424 -or $message -match '(?i)(FailedDependency|Failed Dependency|draft|not published|unpublished)')
 }
 
 # ── Build list URL ─────────────────────────────────────────────────────────────
@@ -258,7 +308,7 @@ try {
     }
 
     # ── Block each unblocked agent ─────────────────────────────────────────────
-    $stats = @{ AlreadyBlocked = 0; Excluded = 0; Blocked = 0; Failed = 0 }
+    $stats = @{ AlreadyBlocked = 0; Excluded = 0; Blocked = 0; DraftUnpublished = 0; Failed = 0 }
     $failures = [System.Collections.Generic.List[pscustomobject]]::new()
 
     foreach ($agent in $agents) {
@@ -282,13 +332,19 @@ try {
         }
         catch {
             $errMsg = $_.Exception.Message
-            Write-Warning "[failed]  $($agent.DisplayName) — $errMsg"
-            $failures.Add([pscustomobject]@{
-                Id    = $agent.Id
-                Name  = $agent.DisplayName
-                Error = $errMsg
-            })
-            $stats.Failed++
+            if ((Test-UnpublishedAgentBlockError -ErrorRecord $_) -or $errMsg -match '(?i)(FailedDependency|Failed Dependency|draft|not published|unpublished)') {
+                Write-Warning "[draft]   $($agent.DisplayName) — cannot block until the agent is published."
+                $stats.DraftUnpublished++
+            }
+            else {
+                Write-Warning "[failed]  $($agent.DisplayName) — $errMsg"
+                $failures.Add([pscustomobject]@{
+                    Id    = $agent.Id
+                    Name  = $agent.DisplayName
+                    Error = $errMsg
+                })
+                $stats.Failed++
+            }
         }
     }
 
@@ -299,6 +355,7 @@ try {
         AlreadyBlocked      = $stats.AlreadyBlocked
         ExemptProtected     = $stats.Excluded
         SuccessfullyBlocked = $stats.Blocked
+        DraftUnpublished    = $stats.DraftUnpublished
         Failed              = $stats.Failed
         Failures            = @($failures)
     }
@@ -313,6 +370,7 @@ try {
         Write-Host "  Allowed agents loaded: $($summary.AllowedAgentsLoaded)"
         Write-Host "  Already blocked      : $($summary.AlreadyBlocked)" -ForegroundColor DarkGray
         Write-Host "  Exempt (protected)   : $($summary.ExemptProtected)" -ForegroundColor DarkYellow
+        Write-Host "  Draft / unpublished  : $($summary.DraftUnpublished)" -ForegroundColor Yellow
 
         Write-Host "  Successfully blocked : $($summary.SuccessfullyBlocked)" -ForegroundColor Green
         if ($summary.Failed -gt 0) {
