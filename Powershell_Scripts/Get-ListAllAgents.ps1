@@ -280,7 +280,7 @@ try {
             $packages.Add([pscustomobject]@{
                 id                   = $item.id
                 displayName          = $item.displayName ?? '(no name)'
-                notes                = 'Review this package and keep it in allowedAgents if it must not be blocked.'
+                description          = $item.longDescription
                 type                 = $item.type
                 publisher            = $item.publisher ?? ''
                 isBlocked            = [bool]($item.isBlocked)
