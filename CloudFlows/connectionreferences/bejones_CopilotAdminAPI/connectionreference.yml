@@ -1,0 +1,9 @@
+connectionreference:
+  '@connectionreferencelogicalname': bejones_CopilotAdminAPI
+  connectionreferencedisplayname: Copilot Admin API
+  connectorid: /providers/Microsoft.PowerApps/apis/shared_webcontentsv2
+  description: both parameters in the Connection must be https://graph.microsoft.com and connection must be made using an Admin account
+  iscustomizable: 1
+  promptingbehavior: 0
+  statecode: 0
+  statuscode: 1

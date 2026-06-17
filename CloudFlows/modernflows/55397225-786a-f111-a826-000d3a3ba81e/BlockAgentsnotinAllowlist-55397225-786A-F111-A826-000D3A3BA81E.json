@@ -1,10 +1,24 @@
 {
   "properties": {
-    "connectionReferences": {},
+    "connectionReferences": {
+      "shared_webcontentsv2_1": {
+        "runtimeSource": "invoker",
+        "connection": {
+          "connectionReferenceLogicalName": "bejones_CopilotAdminAPI"
+        },
+        "api": {
+          "name": "shared_webcontentsv2"
+        }
+      }
+    },
     "definition": {
       "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
       "contentVersion": "1.0.0.0",
       "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
         "$authentication": {
           "defaultValue": {},
           "type": "SecureObject"
@@ -36,7 +50,7 @@
           "inputs": {
             "variables": [
               {
-                "name": "AllowlistAgentIds",
+                "name": "AllowedAgents",
                 "type": "array",
                 "value": [
                   "P_04bd11c3-6ac7-7b55-6c0a-4a99918be9f1",
@@ -49,203 +63,559 @@
                 ]
               }
             ]
-          }
+          },
+          "description": "This array is hardcoded for illustrative purposes only. This list could come from Dataverse, an API call to trigger the flow, SharePoint, or any other source but must contain the package IDs only"
         },
-        "Initialize_page_url": {
-          "runAfter": {
-            "Initialize_allowlist_agent_ids": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "PageUrl",
-                "type": "string",
-                "value": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$filter=supportedHosts/any(h:h eq 'Copilot')"
-              }
-            ]
-          }
-        },
-        "Initialize_blocked_agents": {
-          "runAfter": {
-            "Initialize_page_url": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "BlockedAgents",
-                "type": "array",
-                "value": []
-              }
-            ]
-          }
-        },
-        "Initialize_allowed_agents": {
-          "runAfter": {
-            "Initialize_blocked_agents": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "AllowedAgents",
-                "type": "array",
-                "value": []
-              }
-            ]
-          }
-        },
-        "Initialize_draft_agents": {
-          "runAfter": {
-            "Initialize_allowed_agents": [
-              "Succeeded"
-            ]
-          },
-          "type": "InitializeVariable",
-          "inputs": {
-            "variables": [
-              {
-                "name": "DraftAgents",
-                "type": "array",
-                "value": []
-              }
-            ]
-          }
-        },
-        "Until_all_pages_processed": {
-          "runAfter": {
-            "Initialize_draft_agents": [
-              "Succeeded"
-            ]
-          },
-          "type": "Until",
-          "expression": "@equals(variables('PageUrl'), '')",
-          "limit": {
-            "count": 100,
-            "timeout": "PT1H"
-          },
+        "Apply_to_each": {
+          "foreach": "@body('Remove_already_blocked_Agents_from_list')",
           "actions": {
-            "Get_agents_page": {
+            "Check_if_agent_is_in_AllowedAgents_list": {
+              "actions": {},
               "runAfter": {},
-              "type": "Http",
-              "inputs": {
-                "method": "GET",
-                "uri": "@{variables('PageUrl')}",
-                "authentication": "@parameters('$authentication')",
-                "retryPolicy": {
-                  "type": "exponential",
-                  "count": 3,
-                  "interval": "PT30S"
-                }
-              }
-            },
-            "For_each_agent": {
-              "runAfter": {
-                "Get_agents_page": [
-                  "Succeeded"
-                ]
-              },
-              "type": "Foreach",
-              "foreach": "@coalesce(body('Get_agents_page')?['value'], createArray())",
-              "operationOptions": "Sequential",
-              "actions": {
-                "If_agent_is_in_allowlist": {
-                  "runAfter": {},
-                  "type": "If",
-                  "expression": "@contains(variables('AllowlistAgentIds'), items('For_each_agent')?['id'])",
-                  "actions": {
-                    "Append_to_allowed_agents": {
-                      "runAfter": {},
-                      "type": "AppendToArrayVariable",
-                      "inputs": {
-                        "name": "AllowedAgents",
-                        "value": {
-                          "id": "@{items('For_each_agent')?['id']}",
-                          "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
-                          "status": "allowed"
-                        }
+              "else": {
+                "actions": {
+                  "Block_Agent": {
+                    "runAfter": {},
+                    "metadata": {
+                      "operationMetadataId": "f2ba420b-9ecf-4ada-8e1e-edf3833568bf"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connectionName": "shared_webcontentsv2_1",
+                        "operationId": "InvokeHttp",
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
+                      },
+                      "parameters": {
+                        "request/method": "POST",
+                        "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}/block"
+                      },
+                      "authentication": {
+                        "type": "Raw",
+                        "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
                       }
                     }
                   },
-                  "else": {
+                  "Check_if_successful": {
                     "actions": {
-                      "If_agent_is_draft": {
+                      "compose_BlockedAgents_item": {
                         "runAfter": {},
-                        "type": "If",
-                        "expression": "@contains(toLower(string(coalesce(items('For_each_agent')?['publishingStatus'], items('For_each_agent')?['publicationStatus'], items('For_each_agent')?['publishingState'], items('For_each_agent')?['state'], items('For_each_agent')?['status'], items('For_each_agent')?['packageStatus'], items('For_each_agent')?['deploymentStatus'], ''))), 'draft')",
-                        "actions": {
-                          "Append_to_draft_agents": {
-                            "runAfter": {},
-                            "type": "AppendToArrayVariable",
-                            "inputs": {
-                              "name": "DraftAgents",
-                              "value": {
-                                "id": "@{items('For_each_agent')?['id']}",
-                                "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
-                                "status": "draft"
-                              }
-                            }
-                          }
+                        "metadata": {
+                          "operationMetadataId": "fbedfa72-d6f6-4b81-ade9-34bc2852907e"
                         },
-                        "else": {
+                        "type": "Compose",
+                        "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
+                      }
+                    },
+                    "runAfter": {
+                      "Block_Agent": [
+                        "Succeeded",
+                        "Failed",
+                        "TimedOut"
+                      ]
+                    },
+                    "else": {
+                      "actions": {
+                        "Handle_failed_block_requests": {
                           "actions": {
-                            "If_agent_is_already_blocked": {
+                            "Get_Agent_details_if_Blocking_fails": {
                               "runAfter": {},
-                              "type": "If",
-                              "expression": "@equals(items('For_each_agent')?['isBlocked'], true)",
-                              "actions": {
-                                "Append_already_blocked_agent_to_blocked_agents": {
-                                  "runAfter": {},
-                                  "type": "AppendToArrayVariable",
-                                  "inputs": {
-                                    "name": "BlockedAgents",
-                                    "value": {
-                                      "id": "@{items('For_each_agent')?['id']}",
-                                      "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
-                                      "status": "alreadyBlocked"
-                                    }
-                                  }
+                              "metadata": {
+                                "operationMetadataId": "b2779334-c1d5-465b-9f9f-7d02d8fe48ec"
+                              },
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "host": {
+                                  "connectionName": "shared_webcontentsv2_1",
+                                  "operationId": "InvokeHttp",
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
+                                },
+                                "parameters": {
+                                  "request/method": "GET",
+                                  "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}"
+                                },
+                                "authentication": {
+                                  "type": "Raw",
+                                  "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+                                },
+                                "retryPolicy": {
+                                  "type": "none"
                                 }
+                              }
+                            },
+                            "Check_if_in_Draft_status": {
+                              "actions": {
+                                "Compose_draftAgent_list": {
+                                  "runAfter": {},
+                                  "metadata": {
+                                    "operationMetadataId": "a2bfc71d-747a-4e8a-abe2-5b5f538b7bd3"
+                                  },
+                                  "type": "Compose",
+                                  "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
+                                }
+                              },
+                              "runAfter": {
+                                "Get_Agent_details_if_Blocking_fails": [
+                                  "Succeeded"
+                                ]
                               },
                               "else": {
                                 "actions": {
-                                  "Block_agent": {
+                                  "compose_errorList_items": {
                                     "runAfter": {},
-                                    "type": "Http",
-                                    "inputs": {
-                                      "method": "POST",
-                                      "uri": "@{concat('https://graph.microsoft.com/beta/copilot/admin/catalog/packages/', items('For_each_agent')?['id'], '/block')}",
-                                      "authentication": "@parameters('$authentication')",
-                                      "retryPolicy": {
-                                        "type": "exponential",
-                                        "count": 3,
-                                        "interval": "PT30S"
-                                      }
-                                    }
-                                  },
-                                  "Append_to_blocked_agents": {
-                                    "runAfter": {
-                                      "Block_agent": [
-                                        "Succeeded"
-                                      ]
+                                    "metadata": {
+                                      "operationMetadataId": "528cc162-62db-4d54-bd0c-2da819f1cce1"
                                     },
-                                    "type": "AppendToArrayVariable",
-                                    "inputs": {
-                                      "name": "BlockedAgents",
-                                      "value": {
-                                        "id": "@{items('For_each_agent')?['id']}",
-                                        "displayName": "@{coalesce(items('For_each_agent')?['displayName'], '(no name)')}",
-                                        "status": "blocked"
+                                    "type": "Compose",
+                                    "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
+                                  }
+                                }
+                              },
+                              "expression": {
+                                "and": [
+                                  {
+                                    "contains": [
+                                      "@string(outputs('Get_Agent_details_if_Blocking_fails')?['body/elementDetails'])",
+                                      ",\\\"PublishedStatus\\\":\\\"Draft\\\""
+                                    ]
+                                  }
+                                ]
+                              },
+                              "metadata": {
+                                "operationMetadataId": "0f1df204-c6f6-49af-a429-260be8e549f4"
+                              },
+                              "type": "If"
+                            }
+                          },
+                          "runAfter": {},
+                          "metadata": {
+                            "operationMetadataId": "60d7f321-bd29-4e6a-abbc-4bbd0812bfda"
+                          },
+                          "type": "Scope"
+                        }
+                      }
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "equals": [
+                            "@outputs('Block_Agent')['statusCode']",
+                            204
+                          ]
+                        }
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "091d6782-ed06-4c05-9136-e17f793b3635"
+                    },
+                    "type": "If"
+                  }
+                }
+              },
+              "expression": {
+                "and": [
+                  {
+                    "contains": [
+                      "@variables('AllowedAgents')",
+                      ""
+                    ]
+                  }
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "24291c8c-28ad-4d9e-b6f5-10f7ca2cf6c6"
+              },
+              "type": "If"
+            }
+          },
+          "runAfter": {
+            "Build_array_of_Agents_to_update": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "711c9bb3-1d73-4224-be15-528674c8be33"
+          },
+          "type": "Foreach",
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 5
+            }
+          }
+        },
+        "Build_array_of_Agents_to_update": {
+          "actions": {
+            "Remove_allowed_Agents_from_list": {
+              "runAfter": {
+                "Parse_list_of_Agents": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "04ecf894-cb90-4151-8d43-1c8d1ca02ddb"
+              },
+              "type": "Query",
+              "inputs": {
+                "from": "@outputs('Parse_list_of_Agents')?['body/value']",
+                "where": "@not(contains(variables('AllowedAgents'), item()?['id']))"
+              }
+            },
+            "Remove_already_blocked_Agents_from_list": {
+              "runAfter": {
+                "Remove_allowed_Agents_from_list": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "fe3d01f3-6a37-43c3-a6d8-676ed1a48380"
+              },
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Remove_allowed_Agents_from_list')",
+                "where": "@equals(item()?['isBlocked'], false)"
+              }
+            },
+            "Parse_list_of_Agents": {
+              "runAfter": {
+                "Get_list_of_Agents": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "f5b3fa83-f59d-4fe0-b274-1077495019f6"
+              },
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@body('Get_list_of_Agents')",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "object",
+                      "properties": {
+                        "@@odata.context": {
+                          "type": "string"
+                        },
+                        "@@odata.count": {
+                          "type": "integer"
+                        },
+                        "value": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "shortDescription": {
+                                "type": "string"
+                              },
+                              "isBlocked": {
+                                "type": "boolean"
+                              },
+                              "supportedHosts": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastModifiedDateTime": {
+                                "type": "string"
+                              },
+                              "publisher": {
+                                "type": "string"
+                              },
+                              "availableTo": {
+                                "type": "string"
+                              },
+                              "deployedTo": {
+                                "type": "string"
+                              },
+                              "elementTypes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "appId": {
+                                "type": "string"
+                              },
+                              "assetId": {
+                                "type": "string"
+                              },
+                              "version": {
+                                "type": "string"
+                              },
+                              "manifestVersion": {
+                                "type": "string"
+                              },
+                              "ownerId": {},
+                              "manifestId": {
+                                "type": "string"
+                              },
+                              "longDescription": {
+                                "type": "string"
+                              },
+                              "createdDateTime": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "displayName",
+                              "type",
+                              "shortDescription",
+                              "isBlocked",
+                              "supportedHosts",
+                              "lastModifiedDateTime",
+                              "publisher",
+                              "availableTo",
+                              "deployedTo",
+                              "elementTypes",
+                              "platform",
+                              "appId",
+                              "assetId",
+                              "version",
+                              "manifestVersion",
+                              "ownerId",
+                              "manifestId",
+                              "longDescription",
+                              "createdDateTime"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string"
+                                },
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "type": "string"
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "displayName": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "type": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "shortDescription": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "isBlocked": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "supportedHosts": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            },
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "lastModifiedDateTime": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "publisher": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "availableTo": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "deployedTo": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "elementTypes": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            },
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "platform": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "appId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "assetId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "version": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "manifestVersion": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "ownerId": {
+                                          "type": "object",
+                                          "properties": {}
+                                        },
+                                        "manifestId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "longDescription": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "createdDateTime": {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "required": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
                                       }
                                     }
                                   }
+                                }
+                              }
+                            },
+                            "@@odata.context": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "@@odata.count": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string"
                                 }
                               }
                             }
@@ -257,36 +627,136 @@
                 }
               }
             },
-            "Set_next_page_url": {
-              "runAfter": {
-                "For_each_agent": [
-                  "Succeeded"
-                ]
+            "Get_list_of_Agents": {
+              "runAfter": {},
+              "metadata": {
+                "operationMetadataId": "ac51475b-e339-4fb5-a5d4-f03272b0d4b9"
               },
-              "type": "SetVariable",
+              "type": "OpenApiConnection",
               "inputs": {
-                "name": "PageUrl",
-                "value": "@{coalesce(body('Get_agents_page')?['@odata.nextLink'], '')}"
-              }
+                "host": {
+                  "connectionName": "shared_webcontentsv2_1",
+                  "operationId": "InvokeHttp",
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
+                },
+                "parameters": {
+                  "request/method": "GET",
+                  "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$filter=supportedHosts/any(h:h eq 'Copilot')"
+                },
+                "authentication": {
+                  "type": "Raw",
+                  "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+                },
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "description": "You must follow documentation at https://learn.microsoft.com/en-us/connectors/webcontentsv2/#authorize-the-connector-to-act-on-behalf-of-a-signed-in-user to enable CopilotPackages API on the Microsoft application and the user connection must be an admin"
             }
-          }
-        },
-        "Compose_results": {
+          },
           "runAfter": {
-            "Until_all_pages_processed": [
+            "Initialize_allowlist_agent_ids": [
               "Succeeded"
             ]
           },
-          "type": "Compose",
+          "metadata": {
+            "operationMetadataId": "d4ae4f48-d329-4e1e-a77f-02714f0ba38d"
+          },
+          "type": "Scope"
+        },
+        "Compose_outcome_arrays": {
+          "actions": {
+            "Compose_errorList_array": {
+              "runAfter": {},
+              "metadata": {
+                "operationMetadataId": "32e80fd2-7d47-4758-a9d6-744fc291a713"
+              },
+              "type": "Compose",
+              "inputs": "@outputs('compose_errorList_items')"
+            },
+            "Compose_BlockedAgents_array": {
+              "runAfter": {
+                "Compose_errorList_array": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "5c36d0b0-36ff-40c4-9dd7-6843135a40a3"
+              },
+              "type": "Compose",
+              "inputs": "@outputs('compose_BlockedAgents_item')"
+            },
+            "Compose_draftAgents_array": {
+              "runAfter": {
+                "Compose_BlockedAgents_array": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "5a618e0f-4ed0-4ef6-8ed6-2bb27d6124f1"
+              },
+              "type": "Compose",
+              "inputs": "@outputs('Compose_draftAgent_list')"
+            }
+          },
+          "runAfter": {
+            "Apply_to_each": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "2ba13df3-4648-457a-9fac-626a25f54486"
+          },
+          "type": "Scope"
+        },
+        "Final_errorList_report": {
+          "runAfter": {
+            "Compose_outcome_arrays": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "8eda3967-eed9-4586-ad18-b09417a2a184"
+          },
+          "type": "Query",
           "inputs": {
-            "blocked": "@{variables('BlockedAgents')}",
-            "allowed": "@{variables('AllowedAgents')}",
-            "draft": "@{variables('DraftAgents')}"
+            "from": "@outputs('Compose_errorList_array')",
+            "where": "@not(equals(item(), null))"
+          }
+        },
+        "Final_blocked_agents_report": {
+          "runAfter": {
+            "Final_errorList_report": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "a86f266d-a170-491b-8509-d70288785360"
+          },
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Compose_BlockedAgents_array')",
+            "where": "@not(equals(item(), null))"
+          }
+        },
+        "Final_draft_Agents_report": {
+          "runAfter": {
+            "Final_blocked_agents_report": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "18a82a3a-941b-4005-906f-d895f055b5f7"
+          },
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Compose_draftAgents_array')",
+            "where": "@not(equals(item(), null))"
           }
         }
       }
     },
-    "templateName": null
+    "templateName": ""
   },
   "schemaVersion": "1.0.0.0"
 }

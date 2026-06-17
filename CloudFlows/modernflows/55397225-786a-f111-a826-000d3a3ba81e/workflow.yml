@@ -1,6 +1,7 @@
 Workflow:
   '@WorkflowId': '{55397225-786a-f111-a826-000d3a3ba81e}'
   '@Name': Block Agents not in Allowlist
+  '@Description': This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
   JsonFileName: /modernflows/55397225-786a-f111-a826-000d3a3ba81e/BlockAgentsnotinAllowlist-55397225-786A-F111-A826-000D3A3BA81E.json
   Type: 1
   Subprocess: 0
@@ -18,6 +19,7 @@ Workflow:
   IsTransacted: 1
   IntroducedVersion: 1.0.0.0
   IsCustomizable: 1
+  RendererObjectTypeCode: 0
   BusinessProcessType: 0
   IsCustomProcessingStepAllowedForOtherPublishers: 1
   ModernFlowType: 0
@@ -26,3 +28,7 @@ Workflow:
     LocalizedName:
       '@languagecode': 1033
       '@description': Block Agents not in Allowlist
+  Descriptions:
+    Description:
+      '@languagecode': 1033
+      '@description': This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
