@@ -27,7 +27,7 @@
         }
       },
       "actions": {
-        "Initialize_variable": {
+        "Initialize_allowed_agent_ids": {
           "runAfter": {},
           "metadata": {
             "operationMetadataId": "680c48d2-ea14-4a7d-8042-ccd9b9eca70c"
@@ -36,10 +36,350 @@
           "inputs": {
             "variables": [
               {
-                "name": "test",
-                "type": "string"
+                "name": "AllowedAgentIds",
+                "type": "array",
+                "value": [
+                  "P_04bd11c3-6ac7-7b55-6c0a-4a99918be9f1",
+                  "P_8d830dc1-9a14-1528-1182-c8e3be94cf5a",
+                  "P_15f67c5b-bfb1-fbd9-043a-cbb047bb7bd0",
+                  "P_54c3f25e-3850-e1e6-231a-aa85fbe9447b",
+                  "P_5b99927c-dcd2-3654-aacb-f8d82a980c83",
+                  "P_552e6eda-fc18-7fb9-0ef6-1bf2de3393e4",
+                  "P_8cfc4e6f-267e-db15-c6e7-3fc47a54f61e"
+                ]
               }
             ]
+          }
+        },
+        "Initialize_page_url": {
+          "runAfter": {
+            "Initialize_allowed_agent_ids": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "PageUrl",
+                "type": "string",
+                "value": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$filter=supportedHosts/any(h:h eq 'Copilot')"
+              }
+            ]
+          }
+        },
+        "Initialize_total_agents_found": {
+          "runAfter": {
+            "Initialize_page_url": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "TotalAgentsFound",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_already_blocked": {
+          "runAfter": {
+            "Initialize_total_agents_found": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "AlreadyBlocked",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_exempt_protected": {
+          "runAfter": {
+            "Initialize_already_blocked": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "ExemptProtected",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_successfully_blocked": {
+          "runAfter": {
+            "Initialize_exempt_protected": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "SuccessfullyBlocked",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_draft_unpublished": {
+          "runAfter": {
+            "Initialize_successfully_blocked": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "DraftUnpublished",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_failed": {
+          "runAfter": {
+            "Initialize_draft_unpublished": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "Failed",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Initialize_failures": {
+          "runAfter": {
+            "Initialize_failed": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "Failures",
+                "type": "array",
+                "value": []
+              }
+            ]
+          }
+        },
+        "Until_all_pages_processed": {
+          "runAfter": {
+            "Initialize_failures": [
+              "Succeeded"
+            ]
+          },
+          "type": "Until",
+          "expression": "@equals(variables('PageUrl'), '')",
+          "limit": {
+            "count": 100,
+            "timeout": "PT1H"
+          },
+          "actions": {
+            "List_current_agent_page": {
+              "runAfter": {},
+              "type": "Http",
+              "inputs": {
+                "method": "GET",
+                "uri": "@{variables('PageUrl')}",
+                "authentication": "@parameters('$authentication')",
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 3,
+                  "interval": "PT30S"
+                }
+              }
+            },
+            "Apply_to_each_agent": {
+              "runAfter": {
+                "List_current_agent_page": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Foreach",
+              "foreach": "@coalesce(body('List_current_agent_page')?['value'], createArray())",
+              "operationOptions": "Sequential",
+              "actions": {
+                "Increment_total_agents_found": {
+                  "runAfter": {},
+                  "type": "IncrementVariable",
+                  "inputs": {
+                    "name": "TotalAgentsFound",
+                    "value": 1
+                  }
+                },
+                "If_agent_already_blocked": {
+                  "runAfter": {
+                    "Increment_total_agents_found": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "If",
+                  "expression": "@equals(items('Apply_to_each_agent')?['isBlocked'], true)",
+                  "actions": {
+                    "Increment_already_blocked": {
+                      "runAfter": {},
+                      "type": "IncrementVariable",
+                      "inputs": {
+                        "name": "AlreadyBlocked",
+                        "value": 1
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "If_agent_is_protected": {
+                        "runAfter": {},
+                        "type": "If",
+                        "expression": "@contains(variables('AllowedAgentIds'), items('Apply_to_each_agent')?['id'])",
+                        "actions": {
+                          "Increment_exempt_protected": {
+                            "runAfter": {},
+                            "type": "IncrementVariable",
+                            "inputs": {
+                              "name": "ExemptProtected",
+                              "value": 1
+                            }
+                          }
+                        },
+                        "else": {
+                          "actions": {
+                            "Block_agent": {
+                              "runAfter": {},
+                              "type": "Http",
+                              "inputs": {
+                                "method": "POST",
+                                "uri": "@{concat('https://graph.microsoft.com/beta/copilot/admin/catalog/packages/', items('Apply_to_each_agent')?['id'], '/block')}",
+                                "authentication": "@parameters('$authentication')",
+                                "retryPolicy": {
+                                  "type": "exponential",
+                                  "count": 3,
+                                  "interval": "PT30S"
+                                }
+                              }
+                            },
+                            "Increment_successfully_blocked": {
+                              "runAfter": {
+                                "Block_agent": [
+                                  "Succeeded"
+                                ]
+                              },
+                              "type": "IncrementVariable",
+                              "inputs": {
+                                "name": "SuccessfullyBlocked",
+                                "value": 1
+                              }
+                            },
+                            "Classify_block_failure": {
+                              "runAfter": {
+                                "Block_agent": [
+                                  "Failed",
+                                  "TimedOut"
+                                ]
+                              },
+                              "type": "If",
+                              "expression": "@or(equals(outputs('Block_agent')?['statusCode'], 424), contains(toLower(string(outputs('Block_agent'))), 'faileddependency'), contains(toLower(string(outputs('Block_agent'))), 'failed dependency'), contains(toLower(string(outputs('Block_agent'))), 'draft'), contains(toLower(string(outputs('Block_agent'))), 'not published'), contains(toLower(string(outputs('Block_agent'))), 'unpublished'))",
+                              "actions": {
+                                "Increment_draft_unpublished": {
+                                  "runAfter": {},
+                                  "type": "IncrementVariable",
+                                  "inputs": {
+                                    "name": "DraftUnpublished",
+                                    "value": 1
+                                  }
+                                }
+                              },
+                              "else": {
+                                "actions": {
+                                  "Append_block_failure": {
+                                    "runAfter": {},
+                                    "type": "AppendToArrayVariable",
+                                    "inputs": {
+                                      "name": "Failures",
+                                      "value": {
+                                        "id": "@{items('Apply_to_each_agent')?['id']}",
+                                        "name": "@{coalesce(items('Apply_to_each_agent')?['displayName'], '(no name)')}",
+                                        "error": "@{string(outputs('Block_agent'))}"
+                                      }
+                                    }
+                                  },
+                                  "Increment_failed": {
+                                    "runAfter": {
+                                      "Append_block_failure": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "type": "IncrementVariable",
+                                    "inputs": {
+                                      "name": "Failed",
+                                      "value": 1
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "Set_next_page_url": {
+              "runAfter": {
+                "Apply_to_each_agent": [
+                  "Succeeded"
+                ]
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "PageUrl",
+                "value": "@{coalesce(body('List_current_agent_page')?['@odata.nextLink'], '')}"
+              }
+            }
+          }
+        },
+        "Compose_summary": {
+          "runAfter": {
+            "Until_all_pages_processed": [
+              "Succeeded"
+            ]
+          },
+          "type": "Compose",
+          "inputs": {
+            "totalAgentsFound": "@{variables('TotalAgentsFound')}",
+            "allowedAgentsLoaded": "@{length(variables('AllowedAgentIds'))}",
+            "alreadyBlocked": "@{variables('AlreadyBlocked')}",
+            "exemptProtected": "@{variables('ExemptProtected')}",
+            "successfullyBlocked": "@{variables('SuccessfullyBlocked')}",
+            "draftUnpublished": "@{variables('DraftUnpublished')}",
+            "failed": "@{variables('Failed')}",
+            "failures": "@{variables('Failures')}"
           }
         }
       }
