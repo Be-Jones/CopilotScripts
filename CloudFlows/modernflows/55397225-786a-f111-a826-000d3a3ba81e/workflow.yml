@@ -1,7 +1,11 @@
 Workflow:
   '@WorkflowId': '{55397225-786a-f111-a826-000d3a3ba81e}'
   '@Name': Block Agents not in Allowlist
-  '@Description': This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
+  '@Description': >-
+    This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
+
+
+    This flow requires a Connection created by a user with privileges to block agents in M365 Admin Center. The HTTP with Entra connection should be created with https://graph.microsoft.com as parameters for the base URL and the Resource URI
   JsonFileName: /modernflows/55397225-786a-f111-a826-000d3a3ba81e/BlockAgentsnotinAllowlist-55397225-786A-F111-A826-000D3A3BA81E.json
   Type: 1
   Subprocess: 0
@@ -31,4 +35,8 @@ Workflow:
   Descriptions:
     Description:
       '@languagecode': 1033
-      '@description': This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
+      '@description': >-
+        This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.
+
+
+        This flow requires a Connection created by a user with privileges to block agents in M365 Admin Center. The HTTP with Entra connection should be created with https://graph.microsoft.com as parameters for the base URL and the Resource URI
