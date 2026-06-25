@@ -29,11 +29,18 @@
     Optional. Writes human-readable progress and table output for manual runs.
     Automated runs emit a structured summary object and warnings/errors only.
 
+.PARAMETER BlockAgentBuilderAgents
+    Optional. Includes Microsoft 365 Copilot Agent Builder agents in block attempts.
+    By default, Agent Builder agents are excluded from blocking.
+
 .EXAMPLE
     .\Block-AllCopilotAgents.ps1 -AllowList .\allowedAgents.json
 
 .EXAMPLE
     .\Block-AllCopilotAgents.ps1 -TenantId contoso.onmicrosoft.com -AllowList .\allowedAgents.json -Interactive
+
+.EXAMPLE
+    .\Block-AllCopilotAgents.ps1 -AllowList .\allowedAgents.json -BlockAgentBuilderAgents
 
 .NOTES
     API reference:
@@ -54,6 +61,9 @@ param(
 
     [Parameter()]
     [switch] $Interactive,
+
+    [Parameter()]
+    [switch] $BlockAgentBuilderAgents,
 
     [Parameter()]
     [ValidateRange(0, 86400)]
@@ -294,6 +304,7 @@ try {
                 Type        = $item.type
                 IsBlocked   = [bool]($item.isBlocked)
                 Publisher   = $item.publisher ?? ''
+                Platform    = $item.platform ?? ''
                 ElementTypes = ($item.elementTypes -join ', ')
             })
         }
@@ -304,11 +315,11 @@ try {
     Write-InteractiveMessage -Message "[fetch] Found $($agents.Count) agent(s) total." -ForegroundColor Cyan
 
     if ($Interactive -and $agents.Count -gt 0) {
-        $agents | Format-Table -AutoSize -Property Id, DisplayName, Type, Publisher, ElementTypes, IsBlocked
+        $agents | Format-Table -AutoSize -Property Id, DisplayName, Type, Publisher, Platform, ElementTypes, IsBlocked
     }
 
     # ── Block each unblocked agent ─────────────────────────────────────────────
-    $stats = @{ AlreadyBlocked = 0; Excluded = 0; Blocked = 0; DraftUnpublished = 0; Failed = 0 }
+    $stats = @{ AlreadyBlocked = 0; Excluded = 0; AgentBuilderExcluded = 0; Blocked = 0; DraftUnpublished = 0; Failed = 0 }
     $failures = [System.Collections.Generic.List[pscustomobject]]::new()
 
     foreach ($agent in $agents) {
@@ -321,6 +332,12 @@ try {
         if ($allowedAgents.Ids.Contains($agent.Id)) {
             Write-InteractiveMessage -Message "[exempt]  $($agent.DisplayName)" -ForegroundColor DarkYellow
             $stats.Excluded++
+            continue
+        }
+
+        if (-not $BlockAgentBuilderAgents -and $agent.Platform -eq 'Microsoft 365 Copilot Agent Builder') {
+            Write-InteractiveMessage -Message "[exempt]  $($agent.DisplayName) (Agent Builder)" -ForegroundColor DarkYellow
+            $stats.AgentBuilderExcluded++
             continue
         }
 
@@ -352,8 +369,10 @@ try {
         TotalAgentsFound    = $agents.Count
         AllowedAgentsFile   = $AllowList
         AllowedAgentsLoaded = $allowedAgents.Count
+        BlockAgentBuilderAgents = [bool]$BlockAgentBuilderAgents
         AlreadyBlocked      = $stats.AlreadyBlocked
         ExemptProtected     = $stats.Excluded
+        AgentBuilderExcluded = $stats.AgentBuilderExcluded
         SuccessfullyBlocked = $stats.Blocked
         DraftUnpublished    = $stats.DraftUnpublished
         Failed              = $stats.Failed
@@ -370,6 +389,7 @@ try {
         Write-Host "  Allowed agents loaded: $($summary.AllowedAgentsLoaded)"
         Write-Host "  Already blocked      : $($summary.AlreadyBlocked)" -ForegroundColor DarkGray
         Write-Host "  Exempt (protected)   : $($summary.ExemptProtected)" -ForegroundColor DarkYellow
+        Write-Host "  Agent Builder exempt : $($summary.AgentBuilderExcluded)" -ForegroundColor DarkYellow
         Write-Host "  Draft / unpublished  : $($summary.DraftUnpublished)" -ForegroundColor Yellow
 
         Write-Host "  Successfully blocked : $($summary.SuccessfullyBlocked)" -ForegroundColor Green
