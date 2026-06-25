@@ -8,5 +8,12 @@ Automation scripts for the administration of Copilot features and skills
 2. Run the blocking script with the reviewed allowlist:
 
 	```powershell
-	.\Powershell_Scripts\Block-AllCopilotAgents.ps1 -AllowList .\Powershell_Scripts\allowedAgents.json
+	.\Scripts\BlockAgents\Block-AllCopilotAgents.ps1 -AllowList .\Scripts\BlockAgents\allowedAgents.json
+	```
+
+	By default, the script excludes agents where `platform` is `Microsoft 365 Copilot Agent Builder`.
+	To include Microsoft 365 Copilot Agent Builder agents in block attempts, add the `-BlockAgentBuilderAgents` switch:
+
+	```powershell
+	.\Scripts\BlockAgents\Block-AllCopilotAgents.ps1 -AllowList .\Scripts\BlockAgents\allowedAgents.json -BlockAgentBuilderAgents
 	```
