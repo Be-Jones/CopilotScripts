@@ -2,57 +2,65 @@
   "properties": {
     "connectionReferences": {
       "shared_webcontentsv2_1": {
-        "runtimeSource": "invoker",
+        "api": {
+          "name": "shared_webcontentsv2"
+        },
         "connection": {
           "connectionReferenceLogicalName": "bejones_CopilotAdminAPI"
         },
-        "api": {
-          "name": "shared_webcontentsv2"
-        }
+        "runtimeSource": "invoker"
       }
     },
     "definition": {
       "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
       "contentVersion": "1.0.0.0",
       "parameters": {
-        "$connections": {
-          "defaultValue": {},
-          "type": "Object"
-        },
         "$authentication": {
           "defaultValue": {},
           "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
         }
       },
       "triggers": {
         "manual": {
-          "metadata": {
-            "operationMetadataId": "a7d1de60-c768-46fb-8847-5dcb2eb7824e"
-          },
           "type": "Request",
           "kind": "Button",
           "inputs": {
             "schema": {
               "type": "object",
-              "properties": {},
-              "required": []
+              "properties": {
+                "boolean": {
+                  "description": "Whether declarative agents built using M365 Copilot Agent Builder should also be blocked",
+                  "title": "Block M365 Declarative agents?",
+                  "type": "boolean",
+                  "x-ms-content-hint": "BOOLEAN",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "required": [
+                "boolean"
+              ]
             }
+          },
+          "metadata": {
+            "operationMetadataId": "a7d1de60-c768-46fb-8847-5dcb2eb7824e"
           }
         }
       },
       "actions": {
         "Initialize_allowlist_agent_ids": {
-          "runAfter": {},
-          "metadata": {
-            "operationMetadataId": "680c48d2-ea14-4a7d-8042-ccd9b9eca70c"
-          },
           "type": "InitializeVariable",
+          "description": "This array is hardcoded for illustrative purposes only. This list could come from Dataverse, an API call to trigger the flow, SharePoint, or any other source but must contain the package IDs only",
           "inputs": {
             "variables": [
               {
                 "name": "AllowedAgents",
                 "type": "array",
                 "value": [
+                  "P_280ba0c3-7951-e7a8-68d3-8d65f9ca8149",
                   "P_04bd11c3-6ac7-7b55-6c0a-4a99918be9f1",
                   "P_8d830dc1-9a14-1528-1182-c8e3be94cf5a",
                   "P_15f67c5b-bfb1-fbd9-043a-cbb047bb7bd0",
@@ -64,168 +72,135 @@
               }
             ]
           },
-          "description": "This array is hardcoded for illustrative purposes only. This list could come from Dataverse, an API call to trigger the flow, SharePoint, or any other source but must contain the package IDs only"
+          "runAfter": {},
+          "metadata": {
+            "operationMetadataId": "680c48d2-ea14-4a7d-8042-ccd9b9eca70c"
+          }
         },
         "Apply_to_each": {
-          "foreach": "@body('Remove_already_blocked_Agents_from_list')",
+          "type": "Foreach",
+          "foreach": "@variables('arrAgentsToBlock')",
           "actions": {
-            "Check_if_agent_is_in_AllowedAgents_list": {
-              "actions": {},
-              "runAfter": {},
-              "else": {
-                "actions": {
-                  "Block_Agent": {
-                    "runAfter": {},
-                    "metadata": {
-                      "operationMetadataId": "f2ba420b-9ecf-4ada-8e1e-edf3833568bf"
-                    },
-                    "type": "OpenApiConnection",
-                    "inputs": {
-                      "host": {
-                        "connectionName": "shared_webcontentsv2_1",
-                        "operationId": "InvokeHttp",
-                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
-                      },
-                      "parameters": {
-                        "request/method": "POST",
-                        "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}/block"
-                      },
-                      "authentication": {
-                        "type": "Raw",
-                        "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
-                      }
-                    }
-                  },
-                  "Check_if_successful": {
-                    "actions": {
-                      "compose_BlockedAgents_item": {
-                        "runAfter": {},
-                        "metadata": {
-                          "operationMetadataId": "fbedfa72-d6f6-4b81-ade9-34bc2852907e"
-                        },
-                        "type": "Compose",
-                        "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
-                      }
-                    },
-                    "runAfter": {
-                      "Block_Agent": [
-                        "Succeeded",
-                        "Failed",
-                        "TimedOut"
-                      ]
-                    },
-                    "else": {
-                      "actions": {
-                        "Handle_failed_block_requests": {
-                          "actions": {
-                            "Get_Agent_details_if_Blocking_fails": {
-                              "runAfter": {},
-                              "metadata": {
-                                "operationMetadataId": "b2779334-c1d5-465b-9f9f-7d02d8fe48ec"
-                              },
-                              "type": "OpenApiConnection",
-                              "inputs": {
-                                "host": {
-                                  "connectionName": "shared_webcontentsv2_1",
-                                  "operationId": "InvokeHttp",
-                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
-                                },
-                                "parameters": {
-                                  "request/method": "GET",
-                                  "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}"
-                                },
-                                "authentication": {
-                                  "type": "Raw",
-                                  "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
-                                },
-                                "retryPolicy": {
-                                  "type": "none"
-                                }
-                              }
-                            },
-                            "Check_if_in_Draft_status": {
-                              "actions": {
-                                "Compose_draftAgent_list": {
-                                  "runAfter": {},
-                                  "metadata": {
-                                    "operationMetadataId": "a2bfc71d-747a-4e8a-abe2-5b5f538b7bd3"
-                                  },
-                                  "type": "Compose",
-                                  "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
-                                }
-                              },
-                              "runAfter": {
-                                "Get_Agent_details_if_Blocking_fails": [
-                                  "Succeeded"
-                                ]
-                              },
-                              "else": {
-                                "actions": {
-                                  "compose_errorList_items": {
-                                    "runAfter": {},
-                                    "metadata": {
-                                      "operationMetadataId": "528cc162-62db-4d54-bd0c-2da819f1cce1"
-                                    },
-                                    "type": "Compose",
-                                    "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}"
-                                  }
-                                }
-                              },
-                              "expression": {
-                                "and": [
-                                  {
-                                    "contains": [
-                                      "@string(outputs('Get_Agent_details_if_Blocking_fails')?['body/elementDetails'])",
-                                      ",\\\"PublishedStatus\\\":\\\"Draft\\\""
-                                    ]
-                                  }
-                                ]
-                              },
-                              "metadata": {
-                                "operationMetadataId": "0f1df204-c6f6-49af-a429-260be8e549f4"
-                              },
-                              "type": "If"
-                            }
-                          },
-                          "runAfter": {},
-                          "metadata": {
-                            "operationMetadataId": "60d7f321-bd29-4e6a-abbc-4bbd0812bfda"
-                          },
-                          "type": "Scope"
-                        }
-                      }
-                    },
-                    "expression": {
-                      "and": [
-                        {
-                          "equals": [
-                            "@outputs('Block_Agent')['statusCode']",
-                            204
-                          ]
-                        }
-                      ]
-                    },
-                    "metadata": {
-                      "operationMetadataId": "091d6782-ed06-4c05-9136-e17f793b3635"
-                    },
-                    "type": "If"
-                  }
+            "Block_Agent": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "request/method": "POST",
+                  "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}/block"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2",
+                  "operationId": "InvokeHttp",
+                  "connectionName": "shared_webcontentsv2_1"
                 }
               },
+              "metadata": {
+                "operationMetadataId": "f2ba420b-9ecf-4ada-8e1e-edf3833568bf"
+              }
+            },
+            "Check_if_successful": {
+              "type": "If",
               "expression": {
                 "and": [
                   {
-                    "contains": [
-                      "@variables('AllowedAgents')",
-                      ""
+                    "equals": [
+                      "@outputs('Block_Agent')['statusCode']",
+                      204
                     ]
                   }
                 ]
               },
-              "metadata": {
-                "operationMetadataId": "24291c8c-28ad-4d9e-b6f5-10f7ca2cf6c6"
+              "actions": {
+                "compose_BlockedAgents_item": {
+                  "type": "Compose",
+                  "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}",
+                  "metadata": {
+                    "operationMetadataId": "fbedfa72-d6f6-4b81-ade9-34bc2852907e"
+                  }
+                }
               },
-              "type": "If"
+              "else": {
+                "actions": {
+                  "Handle_failed_block_requests": {
+                    "type": "Scope",
+                    "actions": {
+                      "Get_Agent_details_if_Blocking_fails": {
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "request/method": "GET",
+                            "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages/@{items('Apply_to_each')?['id']}"
+                          },
+                          "host": {
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2",
+                            "operationId": "InvokeHttp",
+                            "connectionName": "shared_webcontentsv2_1"
+                          },
+                          "retryPolicy": {
+                            "type": "none"
+                          }
+                        },
+                        "metadata": {
+                          "operationMetadataId": "b2779334-c1d5-465b-9f9f-7d02d8fe48ec"
+                        }
+                      },
+                      "Check_if_in_Draft_status": {
+                        "type": "If",
+                        "expression": {
+                          "and": [
+                            {
+                              "contains": [
+                                "@string(outputs('Get_Agent_details_if_Blocking_fails')?['body/elementDetails'])",
+                                ",\\\"PublishedStatus\\\":\\\"Draft\\\""
+                              ]
+                            }
+                          ]
+                        },
+                        "actions": {
+                          "Compose_draftAgent_list": {
+                            "type": "Compose",
+                            "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}",
+                            "metadata": {
+                              "operationMetadataId": "a2bfc71d-747a-4e8a-abe2-5b5f538b7bd3"
+                            }
+                          }
+                        },
+                        "else": {
+                          "actions": {
+                            "compose_errorList_items": {
+                              "type": "Compose",
+                              "inputs": "@{items('Apply_to_each')?['displayName']} - @{items('Apply_to_each')?['id']}",
+                              "metadata": {
+                                "operationMetadataId": "528cc162-62db-4d54-bd0c-2da819f1cce1"
+                              }
+                            }
+                          }
+                        },
+                        "runAfter": {
+                          "Get_Agent_details_if_Blocking_fails": [
+                            "Succeeded"
+                          ]
+                        },
+                        "metadata": {
+                          "operationMetadataId": "0f1df204-c6f6-49af-a429-260be8e549f4"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "operationMetadataId": "60d7f321-bd29-4e6a-abbc-4bbd0812bfda"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Block_Agent": [
+                  "SUCCEEDED",
+                  "FAILED"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "091d6782-ed06-4c05-9136-e17f793b3635"
+              }
             }
           },
           "runAfter": {
@@ -233,19 +208,24 @@
               "Succeeded"
             ]
           },
-          "metadata": {
-            "operationMetadataId": "711c9bb3-1d73-4224-be15-528674c8be33"
-          },
-          "type": "Foreach",
           "runtimeConfiguration": {
             "concurrency": {
               "repetitions": 5
             }
+          },
+          "metadata": {
+            "operationMetadataId": "711c9bb3-1d73-4224-be15-528674c8be33"
           }
         },
         "Build_array_of_Agents_to_update": {
+          "type": "Scope",
           "actions": {
             "Remove_allowed_Agents_from_list": {
+              "type": "Query",
+              "inputs": {
+                "from": "@outputs('Parse_list_of_Agents')?['body/value']",
+                "where": "@not(contains(variables('AllowedAgents'), item()?['id']))"
+              },
               "runAfter": {
                 "Parse_list_of_Agents": [
                   "Succeeded"
@@ -253,14 +233,14 @@
               },
               "metadata": {
                 "operationMetadataId": "04ecf894-cb90-4151-8d43-1c8d1ca02ddb"
-              },
-              "type": "Query",
-              "inputs": {
-                "from": "@outputs('Parse_list_of_Agents')?['body/value']",
-                "where": "@not(contains(variables('AllowedAgents'), item()?['id']))"
               }
             },
             "Remove_already_blocked_Agents_from_list": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Remove_allowed_Agents_from_list')",
+                "where": "@equals(item()?['isBlocked'], false)"
+              },
               "runAfter": {
                 "Remove_allowed_Agents_from_list": [
                   "Succeeded"
@@ -268,22 +248,9 @@
               },
               "metadata": {
                 "operationMetadataId": "fe3d01f3-6a37-43c3-a6d8-676ed1a48380"
-              },
-              "type": "Query",
-              "inputs": {
-                "from": "@body('Remove_allowed_Agents_from_list')",
-                "where": "@equals(item()?['isBlocked'], false)"
               }
             },
             "Parse_list_of_Agents": {
-              "runAfter": {
-                "Get_list_of_Agents": [
-                  "Succeeded"
-                ]
-              },
-              "metadata": {
-                "operationMetadataId": "f5b3fa83-f59d-4fe0-b274-1077495019f6"
-              },
               "type": "ParseJson",
               "inputs": {
                 "content": "@body('Get_list_of_Agents')",
@@ -625,56 +592,110 @@
                     }
                   }
                 }
+              },
+              "runAfter": {
+                "Get_list_of_Agents": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "f5b3fa83-f59d-4fe0-b274-1077495019f6"
               }
             },
             "Get_list_of_Agents": {
-              "runAfter": {},
-              "metadata": {
-                "operationMetadataId": "ac51475b-e339-4fb5-a5d4-f03272b0d4b9"
-              },
               "type": "OpenApiConnection",
+              "description": "You must follow documentation at https://learn.microsoft.com/en-us/connectors/webcontentsv2/#authorize-the-connector-to-act-on-behalf-of-a-signed-in-user to enable CopilotPackages API on the Microsoft application and the user connection must be an admin",
               "inputs": {
-                "host": {
-                  "connectionName": "shared_webcontentsv2_1",
-                  "operationId": "InvokeHttp",
-                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2"
-                },
                 "parameters": {
                   "request/method": "GET",
                   "request/url": "https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$filter=supportedHosts/any(h:h eq 'Copilot')"
                 },
-                "authentication": {
-                  "type": "Raw",
-                  "value": "@json(decodeBase64(triggerOutputs().headers['X-MS-APIM-Tokens']))['$ConnectionKey']"
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_webcontentsv2",
+                  "operationId": "InvokeHttp",
+                  "connectionName": "shared_webcontentsv2_1"
                 },
                 "retryPolicy": {
                   "type": "none"
                 }
               },
-              "description": "You must follow documentation at https://learn.microsoft.com/en-us/connectors/webcontentsv2/#authorize-the-connector-to-act-on-behalf-of-a-signed-in-user to enable CopilotPackages API on the Microsoft application and the user connection must be an admin"
+              "metadata": {
+                "operationMetadataId": "ac51475b-e339-4fb5-a5d4-f03272b0d4b9"
+              }
+            },
+            "Check_if_M365_Copilot_Agent_Builder_agents_should_be_blocked": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@triggerBody()?['boolean']",
+                      "@true"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Set_arrAgentsToBlock_2": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "arrAgentsToBlock",
+                    "value": "@body('Remove_already_blocked_Agents_from_list')"
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Filter_array_to_remove_Agent_Builder_agents": {
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@body('Remove_already_blocked_Agents_from_list')",
+                      "where": "@not(equals(item()?['platform'],'Microsoft 365 Copilot Agent Builder'))"
+                    }
+                  },
+                  "Set_arrAgentsToBlock": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "arrAgentsToBlock",
+                      "value": "@body('Filter_array_to_remove_Agent_Builder_agents')"
+                    },
+                    "runAfter": {
+                      "Filter_array_to_remove_Agent_Builder_agents": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Remove_already_blocked_Agents_from_list": [
+                  "Succeeded"
+                ]
+              }
             }
           },
           "runAfter": {
-            "Initialize_allowlist_agent_ids": [
+            "Initialize_arrAgentsToBlock": [
               "Succeeded"
             ]
           },
           "metadata": {
             "operationMetadataId": "d4ae4f48-d329-4e1e-a77f-02714f0ba38d"
-          },
-          "type": "Scope"
+          }
         },
         "Compose_outcome_arrays": {
+          "type": "Scope",
           "actions": {
             "Compose_errorList_array": {
-              "runAfter": {},
+              "type": "Compose",
+              "inputs": "@outputs('compose_errorList_items')",
               "metadata": {
                 "operationMetadataId": "32e80fd2-7d47-4758-a9d6-744fc291a713"
-              },
-              "type": "Compose",
-              "inputs": "@outputs('compose_errorList_items')"
+              }
             },
             "Compose_BlockedAgents_array": {
+              "type": "Compose",
+              "inputs": "@outputs('compose_BlockedAgents_item')",
               "runAfter": {
                 "Compose_errorList_array": [
                   "Succeeded"
@@ -682,11 +703,11 @@
               },
               "metadata": {
                 "operationMetadataId": "5c36d0b0-36ff-40c4-9dd7-6843135a40a3"
-              },
-              "type": "Compose",
-              "inputs": "@outputs('compose_BlockedAgents_item')"
+              }
             },
             "Compose_draftAgents_array": {
+              "type": "Compose",
+              "inputs": "@outputs('Compose_draftAgent_list')",
               "runAfter": {
                 "Compose_BlockedAgents_array": [
                   "Succeeded"
@@ -694,9 +715,7 @@
               },
               "metadata": {
                 "operationMetadataId": "5a618e0f-4ed0-4ef6-8ed6-2bb27d6124f1"
-              },
-              "type": "Compose",
-              "inputs": "@outputs('Compose_draftAgent_list')"
+              }
             }
           },
           "runAfter": {
@@ -706,10 +725,14 @@
           },
           "metadata": {
             "operationMetadataId": "2ba13df3-4648-457a-9fac-626a25f54486"
-          },
-          "type": "Scope"
+          }
         },
         "Final_errorList_report": {
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Compose_errorList_array')",
+            "where": "@not(equals(item(), null))"
+          },
           "runAfter": {
             "Compose_outcome_arrays": [
               "Succeeded"
@@ -717,14 +740,14 @@
           },
           "metadata": {
             "operationMetadataId": "8eda3967-eed9-4586-ad18-b09417a2a184"
-          },
-          "type": "Query",
-          "inputs": {
-            "from": "@outputs('Compose_errorList_array')",
-            "where": "@not(equals(item(), null))"
           }
         },
         "Final_blocked_agents_report": {
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Compose_BlockedAgents_array')",
+            "where": "@not(equals(item(), null))"
+          },
           "runAfter": {
             "Final_errorList_report": [
               "Succeeded"
@@ -732,14 +755,14 @@
           },
           "metadata": {
             "operationMetadataId": "a86f266d-a170-491b-8509-d70288785360"
-          },
-          "type": "Query",
-          "inputs": {
-            "from": "@outputs('Compose_BlockedAgents_array')",
-            "where": "@not(equals(item(), null))"
           }
         },
         "Final_draft_Agents_report": {
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Compose_draftAgents_array')",
+            "where": "@not(equals(item(), null))"
+          },
           "runAfter": {
             "Final_blocked_agents_report": [
               "Succeeded"
@@ -747,16 +770,28 @@
           },
           "metadata": {
             "operationMetadataId": "18a82a3a-941b-4005-906f-d895f055b5f7"
-          },
-          "type": "Query",
+          }
+        },
+        "Initialize_arrAgentsToBlock": {
+          "type": "InitializeVariable",
           "inputs": {
-            "from": "@outputs('Compose_draftAgents_array')",
-            "where": "@not(equals(item(), null))"
+            "variables": [
+              {
+                "name": "arrAgentsToBlock",
+                "type": "array"
+              }
+            ]
+          },
+          "runAfter": {
+            "Initialize_allowlist_agent_ids": [
+              "Succeeded"
+            ]
           }
         }
-      }
+      },
+      "description": "This flow will block all agents in M365 Admin center except for any provided in an allowlist array. It will not attempt to block any agents that are already in Blocked status. The flow will finish with a report of blocked agents, agents still in Draft status which cannot be blocked, and any errors.\n\nThis flow requires a Connection created by a user with privileges to block agents in M365 Admin Center. The HTTP with Entra connection should be created with https://graph.microsoft.com as parameters for the base URL and the Resource URI"
     },
-    "templateName": ""
+    "templateName": null
   },
   "schemaVersion": "1.0.0.0"
 }
