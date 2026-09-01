@@ -7,6 +7,7 @@ Automation assets for administering Microsoft 365 Copilot agents and related age
 | Item | Description |
 | --- | --- |
 | [BlockAgents](Scripts/BlockAgents/Block-AllCopilotAgents.ps1) | PowerShell 7 script blocks agents that are not in the supplied allowlist via a beta Graph API endpoint. It skips agents that are already blocked and reports blocked, protected, draft/unpublished, and failed agents. |
+|[ListAgentsWithAttachments](Scripts/ListAgentsWithAttachments/Get-AgentKnowledgeSources.ps1) | PowerShell 7 script that retrieves agents from the M365 Admin Center inventory and can be filtered to show only Agents that have knowledge sources that were uploaded and attached directly to the agent. This is meant to help identify agents that may be sharing data unknowingly, as the data in those attached files is automatically made available to all users of the agent. Agent 365 license is required. See [Scripts/ListAgentsWithAttachments/README.md](Scripts/ListAgentsWithAttachments/README.md) for details| 
 
 ## Cloud Flows
 **Note:** Cloud Flows can be imported individually or the entire _/CloudFlows/AgentManagementScripts_version.zip_ file can be imported directly in make.powerautomate.com.
